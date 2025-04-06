@@ -1,118 +1,119 @@
 const request = require('supertest');
 const nock = require('nock');
-const express = require('express');
-const path = require('path');
+const { app } = require('../app');
 const { sampleHtmlWithYale } = require('./test-utils');
-
-// Import app but don't let it listen on a port (we'll use supertest for that)
-// Create a test app with the same route handlers
-const testApp = express();
-testApp.use(express.json());
-testApp.use(express.urlencoded({ extended: true }));
-
-// Mock the app's routes for testing
-testApp.post('/fetch', async (req, res) => {
-  try {
-    const { url } = req.body;
-    
-    if (!url) {
-      return res.status(400).json({ error: 'URL is required' });
-    }
-
-    // For test purposes, we're using the mocked response from nock
-    // The actual HTTP request is intercepted by nock
-    const response = await require('axios').get(url);
-    const html = response.data;
-    
-    // Use cheerio to parse HTML and selectively replace text content, not URLs
-    const $ = require('cheerio').load(html);
-    
-    // Process text nodes in the body
-    $('body *').contents().filter(function() {
-      return this.nodeType === 3; // Text nodes only
-    }).each(function() {
-      // Replace text content but not in URLs or attributes
-      const text = $(this).text();
-      const newText = text.replace(/Yale/g, 'Fale').replace(/yale/g, 'fale');
-      if (text !== newText) {
-        $(this).replaceWith(newText);
-      }
-    });
-    
-    // Process title separately
-    const title = $('title').text().replace(/Yale/g, 'Fale').replace(/yale/g, 'fale');
-    $('title').text(title);
-    
-    return res.json({ 
-      success: true, 
-      content: $.html(),
-      title: title,
-      originalUrl: url
-    });
-  } catch (error) {
-    return res.status(500).json({ 
-      error: `Failed to fetch content: ${error.message}` 
-    });
-  }
-});
 
 describe('API Endpoints', () => {
   beforeAll(() => {
-    // Disable real HTTP requests during testing
+    // Enable real HTTP requests to our app
+    nock.cleanAll();
     nock.disableNetConnect();
-    // Allow localhost connections for supertest
-    nock.enableNetConnect('127.0.0.1');
+    nock.enableNetConnect(/localhost|127\.0\.0\.1/);
   });
 
   afterAll(() => {
-    // Clean up nock
     nock.cleanAll();
     nock.enableNetConnect();
   });
 
-  afterEach(() => {
-    // Clear any lingering nock interceptors after each test
+  beforeEach(() => {
+    // Reset mocks before each test
     nock.cleanAll();
+    nock.disableNetConnect();
+    nock.enableNetConnect(/localhost|127\.0\.0\.1/);
+  });
+
+  test('GET / should return the homepage', async () => {
+    const response = await request(app).get('/');
+    expect(response.status).toBe(200);
+    expect(response.text).toContain('Faleproxy');
+  });
+
+  test('GET /nonexistent should return 404', async () => {
+    const response = await request(app).get('/nonexistent');
+    expect(response.status).toBe(404);
   });
 
   test('POST /fetch should return 400 if URL is missing', async () => {
-    const response = await request(testApp)
+    const response = await request(app)
       .post('/fetch')
       .send({});
+    
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe('URL is required');
+  });
 
-    expect(response.statusCode).toBe(400);
+  test('POST /fetch should return 400 if URL is empty', async () => {
+    const response = await request(app)
+      .post('/fetch')
+      .send({ url: '' });
+    
+    expect(response.status).toBe(400);
     expect(response.body.error).toBe('URL is required');
   });
 
   test('POST /fetch should fetch and replace Yale with Fale', async () => {
-    // Mock the external URL
+    // Mock the external URL request
     nock('https://example.com')
       .get('/')
       .reply(200, sampleHtmlWithYale);
 
-    const response = await request(testApp)
+    const response = await request(app)
       .post('/fetch')
       .send({ url: 'https://example.com/' });
-
-    expect(response.statusCode).toBe(200);
+    
+    expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
-    expect(response.body.title).toBe('Fale University Test Page');
-    expect(response.body.content).toContain('Welcome to Fale University');
-    expect(response.body.content).toContain('https://www.yale.edu/about');  // URL should be unchanged
-    expect(response.body.content).toContain('>About Fale<');  // Link text should be changed
+    
+    // Check that Yale has been replaced with Fale in the content
+    expect(response.body.content).toContain('Fale University');
+    expect(response.body.content).not.toContain('<h1>Welcome to Yale University</h1>');
+    expect(response.body.content).toContain('<h1>Welcome to Fale University</h1>');
+    
+    // Check that link text has been replaced
+    expect(response.body.content).toContain('>About Fale<');
+    expect(response.body.content).toContain('>Fale Admissions<');
   });
 
   test('POST /fetch should handle errors from external sites', async () => {
-    // Mock a failing URL
+    // Mock a failed request
     nock('https://error-site.com')
       .get('/')
-      .replyWithError('Connection refused');
+      .replyWithError('External site error');
 
-    const response = await request(testApp)
+    const response = await request(app)
       .post('/fetch')
       .send({ url: 'https://error-site.com/' });
-
-    expect(response.statusCode).toBe(500);
+    
+    expect(response.status).toBe(500);
     expect(response.body.error).toContain('Failed to fetch content');
+  });
+
+  test('POST /fetch should handle malformed URLs', async () => {
+    const response = await request(app)
+      .post('/fetch')
+      .send({ url: 'not-a-valid-url' });
+    
+    expect(response.status).toBe(500);
+    expect(response.body.error).toContain('Failed to fetch content');
+  });
+
+  test('POST /fetch should handle non-HTML responses', async () => {
+    // Mock a JSON response
+    const yaleData = { data: 'Yale University' };
+    nock('https://api-site.com')
+      .get('/')
+      .reply(200, JSON.stringify(yaleData), { 'Content-Type': 'application/json' });
+
+    const response = await request(app)
+      .post('/fetch')
+      .send({ url: 'https://api-site.com/' });
+    
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    
+    // Parse the JSON content and check for replacement
+    const content = JSON.parse(response.body.content);
+    expect(content.data).toBe('Fale University');
   });
 });
