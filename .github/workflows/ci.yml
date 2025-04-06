@@ -1,8 +1,11 @@
 name: Faleproxy CI
+env:
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ '*' ]  # Run on all branches
   pull_request:
     branches: [ main, master ]
 
@@ -15,10 +18,10 @@ jobs:
         node-version: [18.x, 20.x]
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
@@ -30,21 +33,46 @@ jobs:
       run: npm run test:ci
       
     - name: Upload coverage report
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: coverage-report
         path: coverage/
         
-  deploy:
-    needs: test
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+  deploy-preview:
+    # Run this job for all branches except main/master
+    if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master'
     runs-on: ubuntu-latest
     
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Setup Node.js
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18.x'
+        
+    - name: Install Vercel CLI
+      run: npm install --global vercel@latest
+      
+    - name: Pull Vercel Environment Information
+      run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
+      
+    - name: Build Project Artifacts
+      run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
+      
+    - name: Deploy Project Artifacts to Vercel (Preview)
+      run: vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }}
+        
+  deploy-production:
+    needs: test
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && success()
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
       with:
         node-version: '18.x'
         

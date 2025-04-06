@@ -17,28 +17,28 @@ describe('Integration Tests', () => {
     nock.disableNetConnect();
     nock.enableNetConnect('127.0.0.1');
     
-    // Create a temporary test app file
-    await execAsync('cp app.js app.test.js');
-    await execAsync(`sed -i '' 's/const PORT = 3001/const PORT = ${TEST_PORT}/' app.test.js`);
-    
-    // Start the test server
-    server = require('child_process').spawn('node', ['app.test.js'], {
-      detached: true,
-      stdio: 'ignore'
-    });
-    
-    // Give the server time to start
-    await new Promise(resolve => setTimeout(resolve, 2000));
+      // Create a temporary test app file
+      await execAsync('cp app.js app.test.js');
+      await execAsync(`sed -i '' 's/const PORT = 3001/const PORT = ${TEST_PORT}/' app.test.js`);
+      
+      // Start the test server
+      server = require('child_process').spawn('node', ['app.test.js'], {
+        detached: true,
+        stdio: 'ignore'
+      });
+      
+      // Give the server time to start
+      await new Promise(resolve => setTimeout(resolve, 2000));
   }, 10000); // Increase timeout for server startup
 
   afterAll(async () => {
-    // Kill the test server and clean up
-    if (server && server.pid) {
+      // Kill the test server and clean up
+      if (server && server.pid) {
       process.kill(-server.pid);
-    }
-    await execAsync('rm app.test.js');
-    nock.cleanAll();
-    nock.enableNetConnect();
+      }
+      await execAsync('rm app.test.js');
+      nock.cleanAll();
+      nock.enableNetConnect();
   });
 
   test('Should replace Yale with Fale in fetched content', async () => {
@@ -84,7 +84,7 @@ describe('Integration Tests', () => {
       // Should not reach here
       expect(true).toBe(false);
     } catch (error) {
-      expect(error.response.status).toBe(500);
+        expect(error.response.status).toBe(500);
     }
   });
 
@@ -94,8 +94,8 @@ describe('Integration Tests', () => {
       // Should not reach here
       expect(true).toBe(false);
     } catch (error) {
-      expect(error.response.status).toBe(400);
-      expect(error.response.data.error).toBe('URL is required');
+        expect(error.response.status).toBe(400);
+        expect(error.response.data.error).toBe('URL is required');
     }
   });
 });
