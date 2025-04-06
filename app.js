@@ -2,139 +2,222 @@ const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
 const path = require('path');
-const url = require('url');
 
 const app = express();
 const PORT = 3001;
 
-// Middleware to parse request bodies
+// Middleware to parse JSON bodies
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+
+// Serve static files from the public directory
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Route to serve the main page
+// Homepage route
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 /**
- * Function to replace Yale with Fale while preserving case
- * This function handles the special test cases correctly
+ * Replace all occurrences of "Yale" with "Fale" in the given text
+ * @param {string} text - The text to process
+ * @returns {string} - The processed text with Yale replaced with Fale
  */
 function replaceYaleWithFale(text) {
-  // Special case: Don't replace text containing "no Yale references"
-  if (text.includes('no Yale references')) {
+  // Handle null, undefined, or non-string inputs
+  if (text === null || text === undefined) {
+    return '';
+  }
+  
+  // Convert non-string inputs to string
+  if (typeof text !== 'string') {
+    return String(text);
+  }
+  
+  // If the text is empty, return it as is
+  if (!text) {
     return text;
   }
-  
-  // Special case for the case-insensitive test
-  if (text.includes('YALE University, Yale College, and yale medical school')) {
-    return 'FALE University, Fale College, and fale medical school are all part of the same institution.';
+
+  // Special case for URLs and class names in HTML content
+  if (text.includes('<') && text.includes('>')) {
+    // Use cheerio to parse HTML content
+    try {
+      const $ = cheerio.load(text);
+      
+      // Process text nodes only
+      $('*').contents().each(function() {
+        if (this.type === 'text') {
+          const nodeText = $(this).text();
+          const newText = nodeText
+            .replace(/YALE/g, 'FALE')
+            .replace(/Yale/g, 'Fale')
+            .replace(/yale/g, 'fale');
+          
+          if (nodeText !== newText) {
+            $(this).replaceWith(newText);
+          }
+        }
+      });
+      
+      return $.html();
+    } catch (error) {
+      // If HTML parsing fails, fall back to simple text replacement
+    }
   }
-  
-  // Standard case: Replace Yale with Fale preserving case
+
+  // For plain text, do a simple replacement
   return text
     .replace(/YALE/g, 'FALE')
     .replace(/Yale/g, 'Fale')
     .replace(/yale/g, 'fale');
 }
 
-// API endpoint to fetch and modify content
-app.post('/fetch', async (req, res) => {
+/**
+ * Process HTML content to replace Yale with Fale
+ * @param {string} html - The HTML content to process
+ * @param {string} baseUrl - The base URL for resolving relative URLs
+ * @returns {string} - The processed HTML with Yale replaced with Fale
+ */
+function processHtml(html, baseUrl) {
   try {
-    const { url: targetUrl } = req.body;
-    
-    if (!targetUrl) {
-      return res.status(400).json({ error: 'URL is required' });
-    }
-
-    // Fetch the content from the provided URL
-    const response = await axios.get(targetUrl);
-    const html = response.data;
-
-    // Use cheerio to parse HTML
     const $ = cheerio.load(html);
     
-    // Function to convert relative URLs to absolute
-    function makeUrlAbsolute(relativeUrl, base) {
-      try {
-        return new URL(relativeUrl, base).href;
-      } catch {
-        return relativeUrl;
-      }
+    // Add base tag to handle relative URLs
+    if (baseUrl) {
+      $('head').prepend(`<base href="${baseUrl}">`);
     }
-
-    // Function to rewrite URLs to go through the proxy
-    function rewriteUrl(originalUrl) {
-      if (!originalUrl) return '';
-      const absoluteUrl = makeUrlAbsolute(originalUrl, targetUrl);
-      // Encode the URL to be used as a parameter
-      return `/proxy?url=${encodeURIComponent(absoluteUrl)}`;
+    
+    // Replace text in title
+    if ($('title').length) {
+      const title = $('title').text();
+      $('title').text(replaceYaleWithFale(title));
     }
-
-    // Rewrite all links
-    $('a').each((i, el) => {
-      const href = $(el).attr('href');
-      if (href) {
-        $(el).attr('href', rewriteUrl(href));
-      }
-    });
-
-    // Rewrite image sources
-    $('img').each((i, el) => {
-      const src = $(el).attr('src');
-      if (src) {
-        $(el).attr('src', makeUrlAbsolute(src, targetUrl));
-      }
-    });
-
-    // Check for special case-insensitive test
-    const isCaseInsensitiveTest = html.includes('YALE University, Yale College, and yale medical school');
-    if (isCaseInsensitiveTest) {
-      $('p').each(function() {
+    
+    // Process all text nodes
+    $('*').contents().each(function() {
+      if (this.type === 'text') {
         const text = $(this).text();
-        if (text.includes('YALE University, Yale College, and yale medical school')) {
-          $(this).text('FALE University, Fale College, and fale medical school are all part of the same institution.');
-        }
-      });
-    } else {
-      // Process text nodes to replace Yale with Fale
-      $('body *').contents().filter(function() {
-        return this.nodeType === 3; // Text nodes only
-      }).each(function() {
-        const text = $(this).text();
-        
-        // Skip replacement for "no Yale references" test case
-        if (text.includes('no Yale references')) {
-          return;
-        }
-        
-        // Standard replacements
-        const newText = text
-          .replace(/YALE/g, 'FALE')
-          .replace(/Yale/g, 'Fale')
-          .replace(/yale/g, 'fale');
+        const newText = replaceYaleWithFale(text);
         
         if (text !== newText) {
           $(this).replaceWith(newText);
         }
+      }
+    });
+    
+    // Process all attributes that might contain text
+    $('*').each(function() {
+      const attrs = ['alt', 'title', 'placeholder', 'aria-label'];
+      
+      attrs.forEach(attr => {
+        if ($(this).attr(attr)) {
+          const attrValue = $(this).attr(attr);
+          $(this).attr(attr, replaceYaleWithFale(attrValue));
+        }
       });
+    });
+    
+    return $.html();
+  } catch (error) {
+    // If HTML processing fails, fall back to simple text replacement
+    return replaceYaleWithFale(html);
+  }
+}
+
+/**
+ * Process any content to replace Yale with Fale
+ * @param {string} content - The content to process
+ * @param {string} contentType - The content type
+ * @param {string} baseUrl - The base URL for resolving relative URLs
+ * @returns {string} - The processed content with Yale replaced with Fale
+ */
+function processContent(content, contentType, baseUrl) {
+  if (!content) return '';
+  
+  // Handle HTML content
+  if (contentType && contentType.includes('text/html')) {
+    return processHtml(content, baseUrl);
+  }
+  
+  // Handle JSON content
+  if (contentType && contentType.includes('application/json')) {
+    try {
+      // If content is already an object, stringify it first
+      const contentStr = typeof content === 'object' ? JSON.stringify(content) : content;
+      const jsonObj = JSON.parse(contentStr);
+      
+      // Process all string values in the JSON
+      function processJsonValues(obj) {
+        if (!obj) return obj;
+        
+        if (typeof obj === 'string') {
+          return replaceYaleWithFale(obj);
+        }
+        
+        if (Array.isArray(obj)) {
+          return obj.map(item => processJsonValues(item));
+        }
+        
+        if (typeof obj === 'object') {
+          const result = {};
+          for (const key in obj) {
+            result[key] = processJsonValues(obj[key]);
+          }
+          return result;
+        }
+        
+        return obj;
+      }
+      
+      const processedObj = processJsonValues(jsonObj);
+      return JSON.stringify(processedObj);
+    } catch (error) {
+      // If JSON processing fails, fall back to simple text replacement
+      return replaceYaleWithFale(String(content));
+    }
+  }
+  
+  // For all other content types, just do a simple text replacement
+  return replaceYaleWithFale(String(content));
+}
+
+// Fetch and modify content endpoint
+app.post('/fetch', async (req, res) => {
+  const { url } = req.body;
+  
+  if (!url) {
+    return res.status(400).json({ error: 'URL is required' });
+  }
+  
+  try {
+    const response = await axios.get(url, {
+      headers: {
+        'User-Agent': 'FaleProxy/1.0'
+      }
+    });
+    
+    const contentType = response.headers['content-type'];
+    const baseUrl = new URL(url).origin;
+    
+    // Process the content based on its type
+    const processedContent = processContent(response.data, contentType, baseUrl);
+    
+    // Extract title from HTML content if possible
+    let title = '';
+    if (contentType && contentType.includes('text/html')) {
+      try {
+        const $ = cheerio.load(processedContent);
+        title = $('title').text() || '';
+      } catch (error) {
+        title = '';
+      }
     }
     
-    // Process title separately
-    let title = $('title').text();
-    title = replaceYaleWithFale(title);
-    $('title').text(title);
-    
-    // Update base tag or add one if it doesn't exist
-    $('base').remove(); // Remove any existing base tags
-    $('head').prepend(`<base href="${targetUrl}">`);
-    
-    return res.json({ 
-      success: true, 
-      content: $.html(),
-      title: title,
-      originalUrl: targetUrl
+    return res.status(200).json({
+      success: true,
+      originalUrl: url,
+      title,
+      content: processedContent
     });
   } catch (error) {
     console.error('Error fetching URL:', error.message);
@@ -144,28 +227,17 @@ app.post('/fetch', async (req, res) => {
   }
 });
 
-// Proxy route to handle clicked links
-app.get('/proxy', async (req, res) => {
-  try {
-    const targetUrl = req.query.url;
-    if (!targetUrl) {
-      return res.status(400).send('URL parameter is required');
-    }
-
-    // Redirect to the main page with the URL in the input
-    res.redirect(`/?url=${encodeURIComponent(targetUrl)}`);
-  } catch (error) {
-    console.error('Proxy error:', error.message);
-    res.status(500).send(`Proxy error: ${error.message}`);
-  }
-});
-
-// Only start the server if this file is run directly (not imported in tests)
+// Start the server if not being imported for testing
 if (require.main === module) {
   app.listen(PORT, () => {
-    console.log(`Faleproxy server running at http://localhost:${PORT}`);
+    console.log(`Faleproxy server running on port ${PORT}`);
   });
 }
 
-// Export the app for testing
-module.exports = app;
+// Export the app and the replaceYaleWithFale function for testing
+module.exports = {
+  replaceYaleWithFale,
+  processHtml,
+  processContent,
+  app
+};
