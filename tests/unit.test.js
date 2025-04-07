@@ -1,6 +1,11 @@
 const cheerio = require('cheerio');
 const { sampleHtmlWithYale } = require('./test-utils');
-const { replaceYaleWithFale, processHtml, processContent } = require('../app');
+const app = require('../app');
+
+// Access the utility functions from the app object
+const replaceYaleWithFale = app.replaceYaleWithFale;
+const processHtml = app.processHtml;
+const processContent = app.processContent;
 
 describe('Yale to Fale replacement logic', () => {
   

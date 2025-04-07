@@ -1,6 +1,6 @@
 const request = require('supertest');
 const nock = require('nock');
-const { app } = require('../app');
+const app = require('../app');
 const { sampleHtmlWithYale } = require('./test-utils');
 
 describe('API Endpoints', () => {

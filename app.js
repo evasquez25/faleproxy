@@ -234,10 +234,10 @@ if (require.main === module) {
   });
 }
 
-// Export the app and the replaceYaleWithFale function for testing
-module.exports = {
-  replaceYaleWithFale,
-  processHtml,
-  processContent,
-  app
-};
+// Export the Express app as the default export for Vercel
+// Also attach the utility functions to the app object for testing
+app.replaceYaleWithFale = replaceYaleWithFale;
+app.processHtml = processHtml;
+app.processContent = processContent;
+
+module.exports = app;

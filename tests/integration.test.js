@@ -23,9 +23,7 @@ describe('Integration Tests', () => {
     // Create a temporary test app file with modified port
     const appContent = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
     const modifiedAppContent = appContent
-      .replace('const PORT = 3001', `const PORT = ${TEST_PORT}`)
-      // Make sure the app is exported correctly
-      .replace('module.exports = {', 'module.exports = app;\nmodule.exports = {');
+      .replace('const PORT = 3001', `const PORT = ${TEST_PORT}`);
     fs.writeFileSync(path.join(__dirname, '../app.test.js'), modifiedAppContent);
     
     // Start the test server
